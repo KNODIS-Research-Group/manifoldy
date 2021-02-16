@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="manifoldy", # Replace with your own username
-    version="0.3.2",
+    version="0.3.3",
     author="Raul Lara-Cabrera",
     author_email="lara.cabrera@gmail.com",
     description="A package to generate customizable manifold synthetic datasets.",
