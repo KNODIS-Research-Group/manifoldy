@@ -1,11 +1,14 @@
 import setuptools
+import os
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
+VERSION = os.environ.get('GITHUB_REF', 'dev')
+
 setuptools.setup(
     name="manifoldy", # Replace with your own username
-    version="0.0.2",
+    version=VERSION,
     author="Raul Lara-Cabrera",
     author_email="lara.cabrera@gmail.com",
     description="A package to generate customizable manifold synthetic datasets.",
