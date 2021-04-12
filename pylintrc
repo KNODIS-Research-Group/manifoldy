@@ -1,0 +1,11 @@
+[MASTER]
+jobs=0
+
+[MESSAGES CONTROL]
+disable=missing-module-docstring,
+        too-many-locals,
+        invalid-name,
+        missing-function-docstring,
+        line-too-long,
+        too-many-arguments,
+        no-value-for-parameter

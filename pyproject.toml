@@ -1,0 +1,29 @@
+[build-system]
+requires = ["flit_core >=2,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.metadata]
+module = "manifoldy"
+author = "Raul Lara-Cabrera"
+author-email = "raul.lara@upm.es"
+home-page = "https://github.com/KNODIS-Research-Group/manifoldy"
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics"
+]
+description-file = "README.md"
+requires=[
+    "numpy>=1.18",
+    "scipy>=1.4",
+    "ndsplines>=0.1.2"
+]
+requires-python=">=3.8"
+[tool.flit.metadata.requires-extra]
+test = [
+    "pytest >=2.7.3",
+    "pytest-cov",
+]
+doc = ["sphinx"]
