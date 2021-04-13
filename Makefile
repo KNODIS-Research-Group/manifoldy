@@ -9,10 +9,9 @@ coverage:  ## Run tests with coverage
 deps:  ## Install dependencies
 	pip install black coverage flake8 mccabe mypy pylint pytest tox
 
-lint:  ## Lint and static-check
+lint:  ## Lint
 	flake8 manifoldy
 	pylint manifoldy
-	mypy manifoldy
 
 push:  ## Push code with tags
 	git push && git push --tags

@@ -176,12 +176,10 @@ def grid_data(X, Y, n_samples=None):
 def estimate_inner_product(X, b):
     u, s, vh = np.linalg.svd(X, full_matrices=True)
     S = np.zeros((u.shape[0], vh.shape[0]))
-    for i in range(len(s)):
-        S[i, i] = s[i]
-
     S_inv = np.zeros((vh.shape[0], u.shape[0]))
-    for i in range(len(s)):
-        S_inv[i, i] = 1 / s[i]
+    for i, e in enumerate(s):
+        S[i, i] = e
+        S_inv[i, i] = 1 / e
 
     return vh.T @ (S_inv @ (u.T @ (b @ (u @ (S_inv.T @ vh)))))
 
@@ -358,7 +356,7 @@ def interpolate_metric_derivatives(g_sp, X, n_samples):
     d = len(n_samples)
     grid = dataset_to_grid(X, n_samples, X.shape[1])
     g = np.array([g_sp[i](grid) for i in range(d * d)])
-    g = g.T.reshape(n, d, d)
+    g = g.T.reshape((n, d, d))
 
     derivs, dderivs = compute_derivatives_dirs(d)
 
@@ -366,14 +364,14 @@ def interpolate_metric_derivatives(g_sp, X, n_samples):
     for der in derivs:
         dg.append(np.array([g_sp[i](grid, nus=der) for i in range(d * d)]))
 
-    dg = np.array(dg).reshape(d, d, d, n)
+    dg = np.array(dg).reshape((d, d, d, n))
     dg = np.moveaxis(dg, [0, 1, 2, 3], [1, 2, 3, 0])
 
     ddg = []
     for der in dderivs:
         ddg.append(np.array([g_sp[i](grid, nus=der) for i in range(d * d)]))
 
-    ddg = np.array(ddg).reshape(d, d, d, d, n)
+    ddg = np.array(ddg).reshape((d, d, d, d, n))
     ddg = np.moveaxis(ddg, [0, 1, 2, 3, 4], [1, 2, 3, 4, 0])
 
     return g, dg, ddg
@@ -408,9 +406,9 @@ def compute_derivatives_dirs(d, n_der=2):
         return derivs
 
     dderivs = []
-    for i in range(len(derivs)):
+    for i in derivs:
         for j in range(d):
-            der = copy.deepcopy(derivs[i])
+            der = copy.deepcopy(i)
             der[j] = der[j] + 1
             dderivs.append(der)
 
@@ -418,9 +416,9 @@ def compute_derivatives_dirs(d, n_der=2):
         return derivs, dderivs
 
     ddderivs = []
-    for i in range(len(dderivs)):
+    for i in dderivs:
         for j in range(d):
-            der = copy.deepcopy(dderivs[i])
+            der = copy.deepcopy(i)
             der[j] = der[j] + 1
             ddderivs.append(der)
 
@@ -432,16 +430,13 @@ def compute_derivatives_dirs(d, n_der=2):
 
 def estimate_metric_derivatives(X, Y, K, grid_n_samples, metric_estimation="KNN"):
     if metric_estimation == "KNN":
-        f, df, ddf, dddf = compute_derivative_function(X, Y, K)
+        _, df, ddf, dddf = compute_derivative_function(X, Y, K)
     elif metric_estimation == "interpolate":
-        f, df, ddf, dddf = interpolate_derivative_function(X, Y)
+        _, df, ddf, dddf = interpolate_derivative_function(X, Y)
     elif metric_estimation == "interpolate_metric":
         g_sp = interpolate_metric(X, Y, K)
         g, dg, ddg = interpolate_metric_derivatives(g_sp, X, grid_n_samples)
         return g, dg, ddg
-    else:
-        print("Metric estimation method not implemented")
-        return
 
     g = np.einsum("ijs,iks->ijk", df, df)
     dg = np.einsum("ijks,ils->ijkl", ddf, df) + np.einsum("iks,ijls->ijkl", df, ddf)
@@ -492,35 +487,29 @@ def compute_norm(
             )[0]
         return np.sqrt(result)
 
-    elif integration == "grid":
-        reduction_indices = [
-            range(
-                int(grid_n_samples[i] * offset), int(grid_n_samples[i] * (1 - offset))
-            )
-            for i in range(len(grid_n_samples))
-        ]
-        X_grid = dataset_to_grid(X, grid_n_samples, dim)
-        X_red_indices = reduction_indices + [range(dim)]
-        X_crop_grid = crop_matrix(X_grid, X_red_indices)
-        R_sq_grid = dataset_to_grid(R_sq, grid_n_samples, R_sq.shape[1])
-        R_sq_red_indices = reduction_indices + [range(R_sq.shape[1])]
-        R_sq_crop_grid = crop_matrix(R_sq_grid, R_sq_red_indices)
+    reduction_indices = [
+        range(int(grid_n_samples[i] * offset), int(grid_n_samples[i] * (1 - offset)))
+        for i in range(len(grid_n_samples))
+    ]
+    X_grid = dataset_to_grid(X, grid_n_samples, dim)
+    X_red_indices = reduction_indices + [range(dim)]
+    X_crop_grid = crop_matrix(X_grid, X_red_indices)
+    R_sq_grid = dataset_to_grid(R_sq, grid_n_samples, R_sq.shape[1])
+    R_sq_red_indices = reduction_indices + [range(R_sq.shape[1])]
+    R_sq_crop_grid = crop_matrix(R_sq_grid, R_sq_red_indices)
 
-        n_crop = 1
-        grid_n_samples_crop = [len(r) for r in reduction_indices]
-        for r in grid_n_samples_crop:
-            n_crop = n_crop * r
-        X_crop = X_crop_grid.reshape(n_crop, X.shape[1])
-        R_sq_crop = R_sq_crop_grid.reshape(n_crop, R_sq.shape[1])
+    n_crop = 1
+    grid_n_samples_crop = [len(r) for r in reduction_indices]
+    for r in grid_n_samples_crop:
+        n_crop = n_crop * r
+    X_crop = X_crop_grid.reshape(n_crop, X.shape[1])
+    R_sq_crop = R_sq_crop_grid.reshape(n_crop, R_sq.shape[1])
 
-        if verbose:
-            print("Initiating grid integration")
-        return np.sqrt(
-            quadrature_regular_grid(X_crop, R_sq_crop, grid_n_samples_crop).sum()
-        )
-    else:
-        print("Integration method not implemented")
-        return
+    if verbose:
+        print("Initiating grid integration")
+    return np.sqrt(
+        quadrature_regular_grid(X_crop, R_sq_crop, grid_n_samples_crop).sum()
+    )
 
 
 def L2_norm_sectional_curvature(

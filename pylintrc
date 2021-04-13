@@ -8,4 +8,5 @@ disable=missing-module-docstring,
         missing-function-docstring,
         line-too-long,
         too-many-arguments,
-        no-value-for-parameter
+        no-value-for-parameter,
+        cell-var-from-loop
