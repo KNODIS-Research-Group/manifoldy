@@ -36,14 +36,7 @@ def compute_partial_derivative_first_christoffel_symbols(ddg, l, n):
 def compute_derivative_first_christoffel_symbols(ddg, n):
     derivatives = []
     for l in range(n):
-        CS_first_diff = np.zeros((n, n, n))
-        for i in range(n):
-            for j in range(n):
-                for k in range(n):
-                    CS_first_diff[k, i, j] = (
-                        1 / 2 * (ddg[l][j][k, i] + ddg[l][i][k, j] - ddg[l][k][i, j])
-                    )
-
+        CS_first_diff = compute_partial_derivative_first_christoffel_symbols(ddg, l, n)
         derivatives.append(CS_first_diff)
     return np.stack(derivatives)
 
