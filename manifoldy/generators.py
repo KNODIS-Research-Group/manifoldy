@@ -28,7 +28,7 @@ def create_spatial_curve(k, x0, v0, n, i, t_min=-1, t_max=1, t_step=0.01):
 
     def _tang(xi):
         thet = sp_theta(xi)
-        complex_product = complex(v0) * complex(np.cos(thet), np.sin(thet))
+        complex_product = complex(*v0) * complex(np.cos(thet), np.sin(thet))
         return complex_product.real, complex_product.imag
 
     def _tang_x(xi):
@@ -82,12 +82,12 @@ def create_dataset(curvature_types, args, n, std):
 
     X = create_submanifold_type(curvature_types, args, n)
     R = special_ortho_group.rvs(n)
-    cov = np.identity(n) * std ** 2
+    cov = np.eye(n) * std ** 2
 
     if len(curvature_types) > n - 1:
         raise ValueError("Too big submanifold")
 
     def _phi(x):
-        return np.dot(R, X(x) + multivariate_normal.rvs(mean=[0] * n, cov=cov).T).T
+        return np.dot(R, X(x) + multivariate_normal.rvs(mean=np.zeros(n), cov=cov).T).T
 
     return _phi
