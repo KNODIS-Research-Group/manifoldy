@@ -1,38 +1,44 @@
-import scipy as sc
 import numpy as np
+from scipy.integrate import quad
 from scipy.interpolate import CubicSpline
 from scipy.stats import multivariate_normal
 from scipy.stats import special_ortho_group
 
-
-def prod_complex(z1, z2):
-    return z1[0] * z2[0] - z1[1] * z2[1], z1[0] * z2[1] + z1[1] * z2[0]
+from manifoldy.definitions import RANDOM_SEED, CURVATURES
 
 
-def my_nintegration(f, a, b):
-    return sc.integrate.quad(f, a, b)[0]
-
-
-def create_curve(k, x0, v0, t_min=-1, t_max=1, t_step=0.01):
-    t_num = (t_max - t_min) / t_step
-    xis = np.linspace(t_min, t_max, 10 * int(t_num))
-    theta_fun = np.vectorize(lambda x: my_nintegration(k, 0, x))
+def create_curve(
+    curvature_function, x0=(0, 0), v0=(1, 1), t_min=-1, t_max=1, t_step=0.01
+):
+    """
+    Returns a function that will apply a single curvature to its arguments.
+    :param curvature_function: callable. Will apply the curvature itself.
+    # TODO: explanations for the rest
+    :param x0:
+    :param v0:
+    :param t_min:
+    :param t_max:
+    :param t_step:
+    """
+    t_num = int((t_max - t_min) / t_step)
+    xis = np.linspace(t_min, t_max, 10 * t_num)
+    theta_fun = np.vectorize(lambda x: quad(curvature_function, 0, x)[0])
     theta_val = theta_fun(xis)
     sp_theta = CubicSpline(xis, theta_val)
 
-    def _tang(xi):
-        thet = sp_theta(xi)
-        return prod_complex(v0, [np.cos(thet), np.sin(thet)])
-
     def _tang_x(xi):
-        return _tang(xi)[0]
+        thet = sp_theta(xi)
+        return v0[0] * np.cos(thet) - v0[1] * np.sin(thet)
 
     def _tang_y(xi):
-        return _tang(xi)[1]
+        thet = sp_theta(xi)
+        return v0[0] * np.sin(thet) + v0[1] * np.cos(thet)
 
-    si = np.linspace(t_min, t_max, 10 * int(t_num))
-    res_x_fun = np.vectorize(lambda x: my_nintegration(_tang_x, 0, x) + x0[0])
-    res_y_fun = np.vectorize(lambda x: my_nintegration(_tang_y, 0, x) + x0[1])
+    si = np.linspace(t_min, t_max, 10 * t_num)
+
+    res_x_fun = np.vectorize(lambda x: quad(_tang_x, 0, x)[0] + x0[0])
+    res_y_fun = np.vectorize(lambda x: quad(_tang_y, 0, x)[0] + x0[1])
+
     res_x_val = res_x_fun(si)
     res_y_val = res_y_fun(si)
 
@@ -45,95 +51,64 @@ def create_curve(k, x0, v0, t_min=-1, t_max=1, t_step=0.01):
     return _gamma
 
 
-def create_spatial_curve(k, x0, v0, n, i, t_min=-1, t_max=1, t_step=0.01):
-    gamma = create_curve(k, x0, v0, t_min, t_max, t_step)
+def get_curvature_function(curvature_types, args, n, t_min=-1, t_max=1, t_step=0.01):
+    """
+    Generates a curvature function, that will apply a number of curvatures to its arguments.
+    :param curvature_types: list of str containing keys of CURVATURES. Individual curvature functions to be used.
+    :param args: list of arguments for every curvature function.
+    :param n: target dimensionality.
+    #TODO: t_min, t_max, t_step
+    :param t_min:
+    :param t_max:
+    :param t_step:
+    """
+    curvatures = [
+        CURVATURES[curvature_types[i]](args[i]) for i in range(len(curvature_types))
+    ]
 
-    def _gamma_sp(s):
-        return np.array([0] * (i) + list(gamma(s)) + [0] * (n - i - 2))
+    individual_curvature_functions = [
+        create_curve(curvature, t_min=t_min, t_max=t_max, t_step=t_step)
+        for curvature in curvatures
+    ]
 
-    return _gamma_sp
-
-
-def create_submanifold(k, x0, v0, n, t_min=-1, t_max=1, t_step=0.01):
-    d = len(k)
-
-    if d > n - 1:
-        print("Too big submanifold")
-
-    if len(x0) != d or len(v0) != d:
-        print("Dimensions do not match!")
-
-    gammas = []
-    for i in range(d):
-        gammas.append(
-            create_spatial_curve(k[i], x0[i], v0[i], n, i, t_min, t_max, t_step)
-        )
+    def zero_pad(arg, start, end=n):
+        return np.array([0] * start + list(arg) + [0] * (end - start - 2))
 
     def _X(arg):
-        suma = 0
-        for i in range(d):
-            suma += gammas[i](arg[i])
-        return suma
+        return sum(
+            [
+                zero_pad(individual_curvature_functions[i](arg[i]), i)
+                for i in range(len(curvatures))
+            ]
+        )
 
     return _X
 
 
-def relu(t, slope):
-    if t < 0:
-        return 0
-    return slope * t
-
-
-def get_curvature_type(curvature_type, args):
-    if curvature_type == "flat":
-        k = lambda t: 0
-    elif curvature_type == "circle":
-        k = lambda t: 2 * np.pi * (args)
-    elif curvature_type == "polynomial_roll":
-        k = lambda t: 4 * args * (t + 1) ** (2 * args)
-    elif curvature_type == "roll":
-        k = lambda t: np.exp(4 * args * t)
-    elif curvature_type == "gaussian":
-        k = lambda t: 1 / (0.1 * args) * np.exp(-((t) ** (2)) / (0.1 * args) ** 2)
-    elif curvature_type == "sine":
-        k = lambda t: (5 + (args - 1) * 10) * np.sin(2 * np.pi * t)
-    elif curvature_type == "logistic":
-        k = lambda t: (10 * args) / (1 + np.exp(-0.5 * t))
-    elif curvature_type == "relu":
-        k = lambda t: relu(t, 10 * args)
-
-    return k
-
-
-def create_curve_type(curvature_type, *args):
-    return create_curve(get_curvature_type(curvature_type, *args), (0, 0), (1, 0))
-
-
-def create_submanifold_type(curvature_types, args, n):
-    d = len(curvature_types)
-    k = [get_curvature_type(curvature_types[i], args[i]) for i in range(d)]
-    if any(ks is None for ks in k):
-        return None
-
-    x0 = [(0, 0)] * d
-    v0 = [(1, 1)] * d
-
-    return create_submanifold(k, x0, v0, n)
-
-
-def create_dataset_anisotropic(curvature_types, args, n, cov):
-    X = create_submanifold_type(curvature_types, args, n)
-    R = special_ortho_group.rvs(n)
-    if X is None:
-        print("Error during creation of the submanifold")
-
-    def _phi(*args):
-        return np.dot(R, X(*args) + multivariate_normal.rvs(mean=[0] * n, cov=cov).T).T
-
-    return _phi
-
-
 def create_dataset(curvature_types, args, n, std):
-    return create_dataset_anisotropic(
-        curvature_types, args, n, np.identity(n) * std ** 2
-    )
+    """
+    Generates a Phi function that applies a number of curvatures to its arguments,
+    increasing its dimensionality to n.
+    The result will then be rotated randomly and applied random noise.
+    :param curvature_types: a list of str with the curvatures to use. Values in this list must be found in CURVATURES.
+    :param args: a list of arguments to supply for every curvature type.
+    :param n: target dimensionality.
+    :param std: standard deviation to apply to random noise.
+    """
+    if len(curvature_types) > n - 1:
+        raise ValueError(
+            "Too many curvature functions have been supplied. "
+            "The resulting manifold dimensionality would exceed the target dimensionality."
+        )
+
+    curvature_function = get_curvature_function(curvature_types, args, n)
+    random_rotation_matrix = special_ortho_group.rvs(n, random_state=RANDOM_SEED)
+    covariance = np.eye(n) * std ** 2
+
+    def phi(x):
+        noise = multivariate_normal.rvs(
+            mean=np.zeros(n), cov=covariance, random_state=RANDOM_SEED
+        )
+        return np.dot(random_rotation_matrix, curvature_function(x) + noise.T).T
+
+    return phi

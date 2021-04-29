@@ -9,4 +9,6 @@ disable=missing-module-docstring,
         line-too-long,
         too-many-arguments,
         no-value-for-parameter,
-        cell-var-from-loop
+        cell-var-from-loop,
+        duplicate-code,
+        import-error,
