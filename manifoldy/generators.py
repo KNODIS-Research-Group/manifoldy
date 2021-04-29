@@ -102,10 +102,10 @@ def create_dataset(curvature_types, args, n, std):
         )
 
     curvature_function = get_curvature_function(curvature_types, args, n)
-    random_rotation_matrix = special_ortho_group.rvs(n, random_state=RANDOM_SEED)
     covariance = np.eye(n) * std ** 2
 
     def phi(x):
+        random_rotation_matrix = special_ortho_group.rvs(n, random_state=RANDOM_SEED)
         noise = multivariate_normal.rvs(
             mean=np.zeros(n), cov=covariance, random_state=RANDOM_SEED
         )
