@@ -2,13 +2,20 @@
 # coding: utf-8
 
 import copy
+import multiprocessing
+import os
+import pickle
+from functools import reduce
+
 import ndsplines
 import numpy as np
-from scipy.special import comb
-from scipy import integrate
+import pandas as pd
+from joblib import parallel_backend, Parallel, delayed
+from scipy.integrate import nquad
 from scipy.interpolate import griddata
+from scipy.special import comb
 
-# COMPUTATION OF CHRISTOFFEL SYMBOLS AND CURVATURE
+from manifoldy.definitions import GRID
 
 
 def compute_first_christoffel_symbols(dg, n):
@@ -84,7 +91,7 @@ def compute_curvature_tensor(g, dg, ddg):
     CS = compute_christoffel_symbols(g, dg)
     CS_diff = compute_derivative_christoffel_symbols(g, dg, ddg)
     R = np.zeros((n, n, n, n))
-    CS_contract = np.tensordot(CS, CS, axes=[[0], [2]])
+    CS_contract = np.tensordot(CS, CS, axes=([0], [2]))
 
     for i in range(n):
         for j in range(n):
@@ -107,7 +114,7 @@ def compute_first_curvature_tensor(g, dg, ddg):
     # n = g.shape[0]
 
     R = compute_curvature_tensor(g, dg, ddg)
-    R_first = np.tensordot(R, g, axes=[[0], [0]])
+    R_first = np.tensordot(R, g, axes=([0], [0]))
 
     return R_first
 
@@ -213,7 +220,7 @@ def crop_matrix(X, crop_indices):
 # ESTIMATION OF THE RIEMANNIAN METRIC
 
 
-def get_indexes_best_neighbors(X, K, i, d):
+def get_indexes_best_neighbors(X, K: int, i, d):
     index_neig = [-1] * K
     dist_neig = np.array([np.inf] * K)
 
@@ -252,7 +259,7 @@ def get_riemannian_metric(X, Y, K):
     return g
 
 
-def compute_derivative_point(X, Y, i, K):
+def compute_knn_point_derivatives(X, Y, i, K):
     d = lambda x, y: np.linalg.norm(x - y)
 
     stop = False
@@ -275,99 +282,113 @@ def compute_derivative_point(X, Y, i, K):
     return estimate_tensor_left(X_vec, Y_vec, 1)
 
 
-def compute_derivative(X, Y, K):
+def compute_knn_derivative(X, Y, K):
     der = []
     for i in range(X.shape[0]):
-        der.append(compute_derivative_point(X, Y, i, K))
+        der.append(compute_knn_point_derivatives(X, Y, i, K))
 
     return np.stack(der)
 
 
-def compute_derivative_function(X, Y, K):
-    df = compute_derivative(X, Y, K)
-    ddf = compute_derivative(X, df, K)
-    dddf = compute_derivative(X, ddf, K)
+def get_knn_derivatives(X, Y, K):
+    first = compute_knn_derivative(X, Y, K)
+    second = compute_knn_derivative(X, first, K)
+    third = compute_knn_derivative(X, second, K)
 
-    return Y, df, ddf, dddf
+    return first, second, third
 
 
-def interpolate_derivative_function(X, Y):
+def get_partial_derivative_indices(variables, order=2):
+    """
+    Gets indices for partial derivatives w.r.t each variable.
+    :param variables: number of variables (number of partial derivatives per order)
+    :param order: max. order of derivation.
+    :return: list of length order, containing permutations of every partial derivative that can be taken for
+    every variable starting from the indices of the previous order.
+    """
+    first_order_indices = np.eye(variables, dtype=int)
+    ret = [first_order_indices]
+
+    previous_order_indices = first_order_indices
+    for _ in range(1, order):
+        current_order_indices = []
+        for previous_order_index in previous_order_indices:
+            for variable in range(variables):
+                partial_derivative_index = list(previous_order_index)
+                partial_derivative_index[variable] += 1
+                current_order_indices.append(partial_derivative_index)
+
+        previous_order_indices = np.array(current_order_indices)
+        ret.append(previous_order_indices)
+
+    return ret
+
+
+def interpolate_derivative_function(X, Y, order=3):
     dim = Y.shape[1]
-    n = X.shape[0]
 
     f = []
     for i in range(dim):
-        tidy_data = np.hstack((X, Y[:, i].reshape(n, 1)))
-        interp = ndsplines.make_interp_spline_from_tidy(
-            tidy_data,
-            range(dim),  # columns to use as independent variable data
-            [dim],  # columns to use as dependent variable data
-        )
+        tidy_data = np.hstack((X, Y[:, i].reshape(-1, 1)))
+        interp = ndsplines.make_interp_spline_from_tidy(tidy_data, range(dim), [dim])
         f.append(interp)
 
-    derivs, dderivs, ddderivs = compute_derivatives_dirs(dim, 3)
+    partial_derivative_indices = get_partial_derivative_indices(dim, order)
 
-    # DERIVATIVE
-    df = []
-    for der in derivs:
-        dfj = []
-        for j in range(dim):
-            dfj.append(f[j](X, nus=der))
-        df.append(np.stack(dfj))
-    df = np.stack(df)
-    df = np.moveaxis(df.reshape(dim, dim, n), [0, 1, 2], [1, 2, 0])
+    derivatives = []
+    for derivative_order in range(order):
+        derivatives_list = []
+        for indices in partial_derivative_indices[derivative_order]:
+            derivatives_list.append(
+                np.stack([f[j](X, nus=indices) for j in range(dim)])
+            )
 
-    # SECOND DERIVATIVES (HESSIAN)
-    ddf = []
-    for der in dderivs:
-        ddfj = []
-        for j in range(dim):
-            ddfj.append(f[j](X, nus=der))
-        ddf.append(np.stack(ddfj))
-    ddf = np.stack(ddf)
-    ddf = np.moveaxis(ddf.reshape(dim, dim, dim, n), [0, 1, 2, 3], [1, 2, 3, 0])
+        derivatives_list = np.stack(derivatives_list)
+        derivatives_list = derivatives_list.reshape(
+            *tuple([dim] * (derivative_order + 2)), len(X)
+        )
 
-    # THIRD DERIVATIVES
-    dddf = []
-    for der in ddderivs:
-        dddfj = []
-        for j in range(dim):
-            dddfj.append(f[j](X, nus=der))
-        dddf.append(np.stack(dddfj))
-    dddf = np.stack(dddf)
-    dddf = np.moveaxis(
-        dddf.reshape(dim, dim, dim, dim, n), [0, 1, 2, 3, 4], [1, 2, 3, 4, 0]
-    )
+        derivatives_list = np.moveaxis(
+            derivatives_list,
+            range(derivative_order + 3),
+            [(x + 1) % (derivative_order + 3) for x in range(derivative_order + 3)],
+        )
+        derivatives.append(derivatives_list)
 
-    return Y, df, ddf, dddf
+    return tuple(derivatives)
 
 
-def interpolate_metric_derivatives(g_sp, X, n_samples):
-    n = 1
-    for n_s in n_samples:
-        n = n * n_s
+def interpolate_metric_derivatives(g_sp, X, n_samples, order=2):
+    n = reduce(lambda x, y: x * y, n_samples)
     d = len(n_samples)
+
     grid = dataset_to_grid(X, n_samples, X.shape[1])
-    g = np.array([g_sp[i](grid) for i in range(d * d)])
+
+    g = np.array([g_sp[i](grid) for i in range(d ** 2)])
     g = g.T.reshape((n, d, d))
 
-    derivs, dderivs = compute_derivatives_dirs(d)
+    partial_derivative_indices = get_partial_derivative_indices(d, order=order)
 
-    dg = []
-    for der in derivs:
-        dg.append(np.array([g_sp[i](grid, nus=der) for i in range(d * d)]))
+    derivatives = []
+    for derivative_order in range(order):
+        derivatives_list = []
+        for indices in partial_derivative_indices[derivative_order]:
+            derivatives_list.append(
+                np.stack([g_sp[i](grid, nus=indices) for i in range(d ** 2)])
+            )
 
-    dg = np.array(dg).reshape((d, d, d, n))
-    dg = np.moveaxis(dg, [0, 1, 2, 3], [1, 2, 3, 0])
+        derivatives_list = np.array(derivatives_list).reshape(
+            *tuple([d] * (derivative_order + 3)), n
+        )
 
-    ddg = []
-    for der in dderivs:
-        ddg.append(np.array([g_sp[i](grid, nus=der) for i in range(d * d)]))
+        derivatives_list = np.moveaxis(
+            derivatives_list,
+            range(derivative_order + 4),
+            [(x + 1) % (derivative_order + 4) for x in range(derivative_order + 4)],
+        )
+        derivatives.append(derivatives_list)
 
-    ddg = np.array(ddg).reshape((d, d, d, d, n))
-    ddg = np.moveaxis(ddg, [0, 1, 2, 3, 4], [1, 2, 3, 4, 0])
-
-    return g, dg, ddg
+    return g, *derivatives
 
 
 def interpolate_metric(X, Y, K):
@@ -388,105 +409,55 @@ def interpolate_metric(X, Y, K):
     return inter
 
 
-def compute_derivatives_dirs(d, n_der=2):
-    derivs = []
-    for i in range(d):
-        der = np.array([0] * d)
-        der[i] = 1
-        derivs.append(der)
-
-    if n_der == 1:
-        return derivs
-
-    dderivs = []
-    for i in derivs:
-        for j in range(d):
-            der = copy.deepcopy(i)
-            der[j] = der[j] + 1
-            dderivs.append(der)
-
-    if n_der == 2:
-        return derivs, dderivs
-
-    ddderivs = []
-    for i in dderivs:
-        for j in range(d):
-            der = copy.deepcopy(i)
-            der[j] = der[j] + 1
-            ddderivs.append(der)
-
-    return derivs, dderivs, ddderivs
-
-
 # TOP FUNCTIONS
 
 
-def estimate_metric_derivatives(X, Y, K, grid_n_samples, metric_estimation="KNN"):
-    if metric_estimation == "KNN":
-        _, df, ddf, dddf = compute_derivative_function(X, Y, K)
-    elif metric_estimation == "interpolate":
-        _, df, ddf, dddf = interpolate_derivative_function(X, Y)
-    elif metric_estimation == "interpolate_metric":
+def estimate_sectional_curvature(X, Y, K, grid_n_samples, metric_estimation="KNN"):
+    if metric_estimation == "interpolate_metric":
         g_sp = interpolate_metric(X, Y, K)
         g, dg, ddg = interpolate_metric_derivatives(g_sp, X, grid_n_samples)
-        return g, dg, ddg
 
-    g = np.einsum("ijs,iks->ijk", df, df)
-    dg = np.einsum("ijks,ils->ijkl", ddf, df) + np.einsum("iks,ijls->ijkl", df, ddf)
-    ddg = (
-        np.einsum("ijkls,ims->ijklm", dddf, df)
-        + np.einsum("ikls,ijms->ijklm", ddf, ddf)
-        + np.einsum("ijls,ikms->ijklm", ddf, ddf)
-        + np.einsum("ils,ijkms->ijklm", df, dddf)
-    )
-
-    return g, dg, ddg
-
-
-def estimate_sectional_curvature(X, Y, K, grid_n_samples, metric_estimation="KNN"):
-    n = X.shape[0]
-
-    g, dg, ddg = estimate_metric_derivatives(X, Y, K, grid_n_samples, metric_estimation)
-
-    R = []
-    for i in range(n):
-        R.append(compute_sectional_curvatures(g[i], dg[i], ddg[i]))
-    R = np.stack(R)
-
-    return R
-
-
-def compute_norm(
-    X, R_sq, grid_n_samples, offset, integration="adaptative", verbose=False
-):
-    dim = X.shape[1]
-    if integration == "adaptative":
-        result = 0
-        for i in range(R_sq.shape[1]):
-            tidy_data = np.hstack((X, R_sq[:, i].reshape(X.shape[0], 1)))
-            interp = ndsplines.make_interp_spline_from_tidy(
-                tidy_data,
-                range(dim),  # columns to use as independent variable data
-                [dim],  # columns to use as dependent variable data
+    else:
+        if metric_estimation == "KNN":
+            df, ddf, dddf = get_knn_derivatives(X, Y, K)
+        elif metric_estimation == "interpolate":
+            df, ddf, dddf = interpolate_derivative_function(X, Y)
+        else:
+            raise ValueError(
+                f'Accepted values for param metric_estimation are {{"KNN", "interpolate", "interpolate_metric"}} ('
+                f"received {metric_estimation})"
             )
 
-            def f(*argv):
-                return interp(argv)[0, 0]
+        g = np.einsum("ijs,iks->ijk", df, df, optimize="greedy")
+        dg = np.einsum("ijks,ils->ijkl", ddf, df) + np.einsum(
+            "iks,ijls->ijkl", df, ddf, optimize="greedy"
+        )
+        ddg = (
+            np.einsum("ijkls,ims->ijklm", dddf, df, optimize="greedy")
+            + np.einsum("ikls,ijms->ijklm", ddf, ddf, optimize="greedy")
+            + np.einsum("ijls,ikms->ijklm", ddf, ddf, optimize="greedy")
+            + np.einsum("ils,ijkms->ijklm", df, dddf, optimize="greedy")
+        )
 
-            if verbose:
-                print("Initiating adaptative integration")
-            result += integrate.nquad(
-                f, [[offset, 1 - offset]] * dim, full_output=False
-            )[0]
-        return np.sqrt(result)
+    R = []
+    for i in range(len(X)):
+        R.append(compute_sectional_curvatures(g[i], dg[i], ddg[i]))
+    return np.stack(R)
+
+
+def compute_grid_norm(X, R_sq, grid_n_samples, offset, verbose=False):
+
+    dim = X.shape[1]
 
     reduction_indices = [
         range(int(grid_n_samples[i] * offset), int(grid_n_samples[i] * (1 - offset)))
         for i in range(len(grid_n_samples))
     ]
+
     X_grid = dataset_to_grid(X, grid_n_samples, dim)
     X_red_indices = reduction_indices + [range(dim)]
     X_crop_grid = crop_matrix(X_grid, X_red_indices)
+
     R_sq_grid = dataset_to_grid(R_sq, grid_n_samples, R_sq.shape[1])
     R_sq_red_indices = reduction_indices + [range(R_sq.shape[1])]
     R_sq_crop_grid = crop_matrix(R_sq_grid, R_sq_red_indices)
@@ -500,16 +471,37 @@ def compute_norm(
 
     if verbose:
         print("Initiating grid integration")
+
     return np.sqrt(
         quadrature_regular_grid(X_crop, R_sq_crop, grid_n_samples_crop).sum()
     )
+
+
+def compute_adaptive_norm(X, R_sq, offset, verbose):
+    dim = X.shape[1]
+    result = 0
+    for i in range(R_sq.shape[1]):
+        tidy_data = np.hstack((X, R_sq[:, i].reshape(X.shape[0], 1)))
+        interp = ndsplines.make_interp_spline_from_tidy(
+            tidy_data,
+            range(dim),  # columns to use as independent variable data
+            [dim],  # columns to use as dependent variable data
+        )
+
+        def f(*argv):
+            return interp(argv)[0, 0]
+
+        if verbose:
+            print("Initiating adaptive integration")
+        result += nquad(f, [[offset, 1 - offset]] * dim, full_output=False)[0]
+    return np.sqrt(result)
 
 
 def L2_norm_sectional_curvature(
     X,
     Y,
     metric_estimation="KNN",
-    K=20,
+    n_neighbors=20,
     integration="grid",
     grid_n_samples=None,
     offset=0.25,
@@ -517,21 +509,85 @@ def L2_norm_sectional_curvature(
 ):
     """
     Available metric_estimation:
-        * 'KNN': Computes metric derivatives using K nearest neighbors.
+        * 'KNN': Computes metric derivatives using n_neighbors nearest neighbors.
         * 'interpolate': Interpolates the underlying function and uses it to compute the metric.
         * 'interpolate_metric': Computes the metric from the data and interpolate it to compute derivatives.
 
-    Availabel integration:
+    Available integrations:
         * 'grid': Computes the integral using a grid.
-        * 'adaptative': Computes the integral using an adaptative method.
+        * 'adaptive': Computes the integral using an adaptive method.
     """
-    if grid_n_samples is None:
+
+    if integration not in {"adaptive", "grid"}:
+        raise ValueError(
+            f'Accepted values for param integration are {{"adaptive", "grid"}} (received {integration})'
+        )
+
+    if metric_estimation not in {"KNN", "interpolate", "interpolate_metric"}:
+        raise ValueError(
+            f'Accepted values for param metric_estimation are {{"KNN", "interpolate", '
+            f'"interpolate_metric"}} (received {metric_estimation})'
+        )
+
+    if integration == "grid" and grid_n_samples is None:
         X, Y, grid_n_samples = grid_data(X, Y)
+
     if verbose:
         print("Starting: estimation of sectional curvature")
-    R = estimate_sectional_curvature(X, Y, K, grid_n_samples, metric_estimation)
-    R_sq = R ** 2
+    R_sq = (
+        estimate_sectional_curvature(
+            X, Y, n_neighbors, grid_n_samples, metric_estimation
+        )
+        ** 2
+    )
     if verbose:
         print("Estimation of sectional curvature: DONE")
 
-    return compute_norm(X, R_sq, grid_n_samples, offset, integration, verbose)
+    if integration == "adaptive":
+        return compute_adaptive_norm(X, R_sq, offset, verbose)
+    return compute_grid_norm(X, R_sq, grid_n_samples, offset, verbose)
+
+
+if __name__ == "__main__":
+
+    def eval_pair(y_true, y_pred):
+        os.system(
+            "taskset -cp 0-%d %s > /dev/null 2>&1"
+            % (multiprocessing.cpu_count(), os.getpid())
+        )
+        return L2_norm_sectional_curvature(
+            y_true,
+            y_pred,
+            metric_estimation="interpolate_metric",
+            verbose=False,
+        )
+
+    with open("results/projection_dataset_names.pickle", "rb") as file:
+        projection_names = pickle.load(file)
+    projection_results = np.load("results/projection_results.npy")
+
+    with parallel_backend("loky"):
+        print("Evaluating")
+        curvatures = Parallel(n_jobs=-1)(
+            delayed(eval_pair)(x, y)
+            for x, y in zip([GRID] * len(projection_results), projection_results)
+        )
+
+        results = [
+            (*name.split(" "), curvature)
+            for name, curvature in zip(projection_names, curvatures)
+        ]
+
+        dataframe = pd.DataFrame(
+            results, columns=["Instance", "Model", "Score"], index=None
+        )
+
+        try:
+            previous_df = pd.read_csv("results.csv", index_col=0)
+            if not previous_df.equals(dataframe):
+                print("Different files")
+                dataframe.to_csv("results2.csv")
+            else:
+                print("Files are identical")
+        except FileNotFoundError:
+            dataframe.to_csv("results.csv")

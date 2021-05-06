@@ -1,13 +1,14 @@
 import numpy as np
 from sklearn.decomposition import PCA, TruncatedSVD
 
-# from sklearn.manifold import Isomap
+from sklearn.manifold import Isomap
 from sklearn.manifold import TSNE
 from umap import UMAP
 
 # GENERAL PARAMETERS
 RANDOM_SEED = 42
 MULTIPROCESSING_POOL_SIZE = 40
+GRID = np.mgrid[0:1:30j, 0:1:30j].reshape(2, -1).T
 
 # DIMENSIONALITY AUGMENTATION PARAMETERS
 TARGET_DIMENSIONALITY = 7
@@ -25,10 +26,10 @@ CURVATURES = {
 }
 
 # DIMENSIONALITY REDUCTION PARAMETERS
-DIFF = (0.8, 1.2)
+DIFFICULTY = (0.8, 1.2)
 DIMENSIONALITY_REDUCTION_MODELS = (
     PCA(n_components=2, random_state=RANDOM_SEED),
-    # Isomap(n_components=2),
+    Isomap(n_components=2, eigen_solver="dense"),
     TruncatedSVD(n_components=2, random_state=RANDOM_SEED),
     TSNE(n_components=2, random_state=RANDOM_SEED),
     UMAP(n_components=2, random_state=RANDOM_SEED, metric="cosine"),

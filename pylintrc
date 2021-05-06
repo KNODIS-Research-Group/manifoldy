@@ -12,3 +12,4 @@ disable=missing-module-docstring,
         cell-var-from-loop,
         duplicate-code,
         import-error,
+        unbalanced-tuple-unpacking

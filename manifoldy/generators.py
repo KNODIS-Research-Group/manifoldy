@@ -1,10 +1,25 @@
+import multiprocessing
+import os
+import pickle
+from itertools import product
+
 import numpy as np
+from joblib import Parallel, delayed, parallel_backend
 from scipy.integrate import quad
 from scipy.interpolate import CubicSpline
 from scipy.stats import multivariate_normal
 from scipy.stats import special_ortho_group
 
-from manifoldy.definitions import RANDOM_SEED, CURVATURES
+from manifoldy.definitions import (
+    RANDOM_NOISE_STD,
+    GRID,
+    TARGET_DIMENSIONALITY,
+    USED_CURVATURES,
+    CURVATURES,
+    DIFFICULTY,
+    RANDOM_SEED,
+)
+from manifoldy.utils import get_instance_name, setup_multiprocessing
 
 
 def create_curve(
@@ -112,3 +127,38 @@ def create_dataset(curvature_types, args, n, std):
         return np.dot(random_rotation_matrix, curvature_function(x) + noise.T).T
 
     return phi
+
+
+def gen_pair(instance):
+    os.system(
+        "taskset -cp 0-%d %s > /dev/null 2>&1"
+        % (multiprocessing.cpu_count(), os.getpid())
+    )
+    name = get_instance_name(instance)
+    return name, np.apply_along_axis(
+        create_dataset(
+            [instance[0], instance[1]],
+            (instance[2], instance[3]),
+            TARGET_DIMENSIONALITY,
+            RANDOM_NOISE_STD,
+        ),
+        1,
+        GRID,
+    )
+
+
+if __name__ == "__main__":
+
+    setup_multiprocessing()
+
+    with parallel_backend("loky"):
+        print("Generating problem instances...")
+        results = Parallel(n_jobs=-1)(
+            delayed(gen_pair)(x)
+            for x in product(USED_CURVATURES, USED_CURVATURES, DIFFICULTY, DIFFICULTY)
+        )
+        names = [x[0] for x in results]
+        data = np.stack([x[1] for x in results])
+        with open("results/dataset_names.pickle", "wb") as file:
+            pickle.dump(names, file)
+        np.save("results/dataset.npy", data)

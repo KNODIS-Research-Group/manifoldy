@@ -5,17 +5,21 @@ from itertools import product
 import numpy as np
 from joblib import Parallel, delayed, parallel_backend
 
-from manifoldy.Curvature import get_instance_name, gen_pair
+from manifoldy.utils import get_instance_name
+from manifoldy.generators import gen_pair
 from manifoldy.L2NormCurvature import L2_norm_sectional_curvature
 from manifoldy.definitions import (
     RANDOM_NOISE_STD,
     TARGET_DIMENSIONALITY,
     USED_CURVATURES,
-    DIFF,
+    DIFFICULTY,
     DIMENSIONALITY_REDUCTION_MODELS,
 )
 from manifoldy.test.generators_before_refactor import (
     create_dataset as create_dataset_refactor,
+)
+from manifoldy.test.L2NormCurvature_before_refactor import (
+    L2_norm_sectional_curvature as L2_norm_sectional_curvature_refactor,
 )
 
 grid = np.mgrid[0:1:30j, 0:1:30j].reshape(2, -1).T
@@ -53,7 +57,7 @@ def test_gen_pair():
         print("Generating problem instances...")
         Parallel(n_jobs=-1)(
             delayed(aux_test_gen_pair)(x)
-            for x in product(USED_CURVATURES, USED_CURVATURES, DIFF, DIFF)
+            for x in product(USED_CURVATURES, USED_CURVATURES, DIFFICULTY, DIFFICULTY)
         )
 
 
@@ -82,7 +86,7 @@ def eval_pair_refactor(p, model):
     return (
         p[0],
         type(model).__name__,
-        L2_norm_sectional_curvature(
+        L2_norm_sectional_curvature_refactor(
             grid,
             model.fit_transform(p[1]),
             metric_estimation="interpolate",
@@ -103,7 +107,7 @@ def test_eval_pair():
         print("Generating problem instances...")
         results = Parallel(n_jobs=-1)(
             delayed(gen_pair)(x)
-            for x in product(USED_CURVATURES, USED_CURVATURES, DIFF, DIFF)
+            for x in product(USED_CURVATURES, USED_CURVATURES, DIFFICULTY, DIFFICULTY)
         )
         instance = dict(results)
         print("Evaluating")
