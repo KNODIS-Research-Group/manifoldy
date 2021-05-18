@@ -104,11 +104,11 @@ def create_dataset(curvature_types, args, n, std):
     """
     Generates a Phi function that applies a number of curvatures to its arguments,
     increasing its dimensionality to n.
-    The result will then be rotated randomly and applied random noise.
+    The result will then be rotated randomly and applied a random translation.
     :param curvature_types: a list of str with the curvatures to use. Values in this list must be found in CURVATURES.
     :param args: a list of arguments to supply for every curvature type.
     :param n: target dimensionality.
-    :param std: standard deviation to apply to random noise.
+    :param std: standard deviation to apply to the random_translation.
     """
     if len(curvature_types) > n - 1:
         raise ValueError(
@@ -121,10 +121,12 @@ def create_dataset(curvature_types, args, n, std):
 
     def phi(x):
         random_rotation_matrix = special_ortho_group.rvs(n, random_state=RANDOM_SEED)
-        noise = multivariate_normal.rvs(
+        random_translation = multivariate_normal.rvs(
             mean=np.zeros(n), cov=covariance, random_state=RANDOM_SEED
         )
-        return np.dot(random_rotation_matrix, curvature_function(x) + noise.T).T
+        return np.dot(
+            random_rotation_matrix, curvature_function(x) + random_translation.T
+        ).T
 
     return phi
 

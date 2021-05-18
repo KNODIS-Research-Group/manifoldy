@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import copy
+import datetime
 import multiprocessing
 import os
 import pickle
@@ -13,6 +14,7 @@ import pandas as pd
 from joblib import parallel_backend, Parallel, delayed
 from scipy.integrate import nquad
 from scipy.interpolate import griddata
+from scipy.spatial.distance import cdist
 from scipy.special import comb
 
 from manifoldy.definitions import GRID
@@ -141,7 +143,7 @@ def compute_sectional_curvatures(g, dg, ddg):
 
 def dataset_to_grid(X, n_samples, dim):
     shap = n_samples + [dim]
-    # shap = [d] + n_samples
+    # shap = [dim] + n_samples
     return X.reshape(shap)
 
 
@@ -177,9 +179,8 @@ def estimate_inner_product(X, b):
     u, s, vh = np.linalg.svd(X, full_matrices=True)
     S = np.zeros((u.shape[0], vh.shape[0]))
     S_inv = np.zeros((vh.shape[0], u.shape[0]))
-    for i, e in enumerate(s):
-        S[i, i] = e
-        S_inv[i, i] = 1 / e
+    np.fill_diagonal(S, s, wrap=False)
+    np.fill_diagonal(S_inv, 1 / s, wrap=False)
 
     return vh.T @ (S_inv @ (u.T @ (b @ (u @ (S_inv.T @ vh)))))
 
@@ -194,7 +195,6 @@ def estimate_tensor_left(X, b, arity):
 
 
 def quadrature_regular_grid(X, values, grid_n_samples):
-    # d = len(grid_n_samples)
     x0 = X[0]
     index = 1
     volume = 1
@@ -220,29 +220,22 @@ def crop_matrix(X, crop_indices):
 # ESTIMATION OF THE RIEMANNIAN METRIC
 
 
-def get_indexes_best_neighbors(X, K: int, i, d):
-    index_neig = [-1] * K
-    dist_neig = np.array([np.inf] * K)
+def nearest_neighbors_indices(i, n_neighbors, distance_matrix):
 
-    for j in range(X.shape[0]):
-        if d(X[i], X[j]) < np.max(dist_neig) and j != i:
-            index_max = np.argmax(dist_neig)
-            index_neig[index_max] = j
-            dist_neig[index_max] = d(X[i], X[j])
+    indices = np.argsort(distance_matrix[i], axis=0)[: n_neighbors + 1]
+    indices = np.delete(indices, 0, axis=0)
 
-    return index_neig
+    return indices
 
 
-def get_riemannian_metric(X, Y, K):
-    d = lambda x, y: np.linalg.norm(x - y)
-
+def get_riemannian_metric(X, Y, n_neighbors, distance_matrix):
     g = []
     dim = X.shape[1]
     for i in range(X.shape[0]):
         stop = False
-        k = K
+        k = n_neighbors
         while not stop:
-            index_neig = get_indexes_best_neighbors(X, k, i, d)
+            index_neig = nearest_neighbors_indices(i, k, distance_matrix)
             X_extract = X[index_neig]
             X_vec = X_extract - X[i]
             if np.linalg.matrix_rank(X_vec) >= dim:
@@ -259,14 +252,12 @@ def get_riemannian_metric(X, Y, K):
     return g
 
 
-def compute_knn_point_derivatives(X, Y, i, K):
-    d = lambda x, y: np.linalg.norm(x - y)
-
+def compute_knn_point_derivatives(X, Y, i, n_neighbors, distance_matrix):
     stop = False
-    k = K
+    k = n_neighbors
     dim = X.shape[1]
     while not stop:
-        index_neig = get_indexes_best_neighbors(X, k, i, d)
+        index_neig = nearest_neighbors_indices(i, k, distance_matrix)
         X_extract = X[index_neig]
         X_vec = X_extract - X[i]
         if np.linalg.matrix_rank(X_vec) >= dim:
@@ -282,18 +273,18 @@ def compute_knn_point_derivatives(X, Y, i, K):
     return estimate_tensor_left(X_vec, Y_vec, 1)
 
 
-def compute_knn_derivative(X, Y, K):
+def compute_knn_derivative(X, Y, n_neighbors, distance_matrix):
     der = []
     for i in range(X.shape[0]):
-        der.append(compute_knn_point_derivatives(X, Y, i, K))
+        der.append(compute_knn_point_derivatives(X, Y, i, n_neighbors, distance_matrix))
 
     return np.stack(der)
 
 
-def get_knn_derivatives(X, Y, K):
-    first = compute_knn_derivative(X, Y, K)
-    second = compute_knn_derivative(X, first, K)
-    third = compute_knn_derivative(X, second, K)
+def get_knn_derivatives(X, Y, n_neighbors, distance_matrix):
+    first = compute_knn_derivative(X, Y, n_neighbors, distance_matrix)
+    second = compute_knn_derivative(X, first, n_neighbors, distance_matrix)
+    third = compute_knn_derivative(X, second, n_neighbors, distance_matrix)
 
     return first, second, third
 
@@ -391,10 +382,10 @@ def interpolate_metric_derivatives(g_sp, X, n_samples, order=2):
     return g, *derivatives
 
 
-def interpolate_metric(X, Y, K):
+def interpolate_metric(X, Y, n_neighbors, distance_matrix):
     n = X.shape[0]
     d = X.shape[1]
-    g = get_riemannian_metric(X, Y, K)
+    g = get_riemannian_metric(X, Y, n_neighbors, distance_matrix)
     inter = []
     for i in range(d):
         for j in range(d):
@@ -412,31 +403,48 @@ def interpolate_metric(X, Y, K):
 # TOP FUNCTIONS
 
 
-def estimate_sectional_curvature(X, Y, K, grid_n_samples, metric_estimation="KNN"):
+def combine_derivatives(df, ddf, dddf):
+    g = np.einsum("ijs,iks->ijk", df, df, optimize="greedy")
+    dg = np.einsum("ijks,ils->ijkl", ddf, df) + np.einsum(
+        "iks,ijls->ijkl", df, ddf, optimize="greedy"
+    )
+    ddg = (
+        np.einsum("ijkls,ims->ijklm", dddf, df, optimize="greedy")
+        + np.einsum("ikls,ijms->ijklm", ddf, ddf, optimize="greedy")
+        + np.einsum("ijls,ikms->ijklm", ddf, ddf, optimize="greedy")
+        + np.einsum("ils,ijkms->ijklm", df, dddf, optimize="greedy")
+    )
+    return g, dg, ddg
+
+
+def compute_distance_matrix(X, distance_metric=None):
+    if distance_metric is None:
+
+        def distance_metric(x, y):
+            return np.linalg.norm(x - y)
+
+    return cdist(X, X, metric=distance_metric)
+
+
+def estimate_sectional_curvature(
+    X, Y, n_neighbors, grid_n_samples, metric_estimation="KNN"
+):
+
     if metric_estimation == "interpolate_metric":
-        g_sp = interpolate_metric(X, Y, K)
+        distance_matrix = compute_distance_matrix(X)
+        g_sp = interpolate_metric(X, Y, n_neighbors, distance_matrix)
         g, dg, ddg = interpolate_metric_derivatives(g_sp, X, grid_n_samples)
-
+    elif metric_estimation == "KNN":
+        distance_matrix = compute_distance_matrix(X)
+        df, ddf, dddf = get_knn_derivatives(X, Y, n_neighbors, distance_matrix)
+        g, dg, ddg = combine_derivatives(df, ddf, dddf)
+    elif metric_estimation == "interpolate":
+        df, ddf, dddf = interpolate_derivative_function(X, Y)
+        g, dg, ddg = combine_derivatives(df, ddf, dddf)
     else:
-        if metric_estimation == "KNN":
-            df, ddf, dddf = get_knn_derivatives(X, Y, K)
-        elif metric_estimation == "interpolate":
-            df, ddf, dddf = interpolate_derivative_function(X, Y)
-        else:
-            raise ValueError(
-                f'Accepted values for param metric_estimation are {{"KNN", "interpolate", "interpolate_metric"}} ('
-                f"received {metric_estimation})"
-            )
-
-        g = np.einsum("ijs,iks->ijk", df, df, optimize="greedy")
-        dg = np.einsum("ijks,ils->ijkl", ddf, df) + np.einsum(
-            "iks,ijls->ijkl", df, ddf, optimize="greedy"
-        )
-        ddg = (
-            np.einsum("ijkls,ims->ijklm", dddf, df, optimize="greedy")
-            + np.einsum("ikls,ijms->ijklm", ddf, ddf, optimize="greedy")
-            + np.einsum("ijls,ikms->ijklm", ddf, ddf, optimize="greedy")
-            + np.einsum("ils,ijkms->ijklm", df, dddf, optimize="greedy")
+        raise ValueError(
+            f'Accepted values for param metric_estimation are {{"KNN", "interpolate", "interpolate_metric"}} ('
+            f"received {metric_estimation})"
         )
 
     R = []
@@ -446,7 +454,6 @@ def estimate_sectional_curvature(X, Y, K, grid_n_samples, metric_estimation="KNN
 
 
 def compute_grid_norm(X, R_sq, grid_n_samples, offset, verbose=False):
-
     dim = X.shape[1]
 
     reduction_indices = [
@@ -568,6 +575,8 @@ if __name__ == "__main__":
 
     with parallel_backend("loky"):
         print("Evaluating")
+        start_time = datetime.datetime.now()
+        print(f"Start time: {start_time}")
         curvatures = Parallel(n_jobs=-1)(
             delayed(eval_pair)(x, y)
             for x, y in zip([GRID] * len(projection_results), projection_results)
@@ -581,6 +590,10 @@ if __name__ == "__main__":
         dataframe = pd.DataFrame(
             results, columns=["Instance", "Model", "Score"], index=None
         )
+
+        end_time = datetime.datetime.now()
+        print(f"End time: {end_time}")
+        print(f"Time elapsed: {end_time - start_time}")
 
         try:
             previous_df = pd.read_csv("results.csv", index_col=0)

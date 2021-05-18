@@ -72,7 +72,7 @@ def eval_pair(p, model):
         L2_norm_sectional_curvature(
             grid,
             model.fit_transform(p[1]),
-            metric_estimation="interpolate",
+            metric_estimation="interpolate_metric",
             verbose=False,
         ),
     )
@@ -89,7 +89,7 @@ def eval_pair_refactor(p, model):
         L2_norm_sectional_curvature_refactor(
             grid,
             model.fit_transform(p[1]),
-            metric_estimation="interpolate",
+            metric_estimation="interpolate_metric",
             verbose=False,
         ),
     )
