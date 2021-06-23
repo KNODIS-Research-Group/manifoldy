@@ -7,7 +7,7 @@ coverage:  ## Run tests with coverage
 	coverage report -m
 
 deps:  ## Install dependencies
-	pip install black coverage flake8 mccabe mypy pylint pytest tox
+	pip install black coverage flake8 mccabe mypy pylint pytest tox flit
 
 lint:  ## Lint
 	flake8 manifoldy
