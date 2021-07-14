@@ -3,7 +3,7 @@ import os
 
 import psutil
 
-from manifoldy.definitions import TARGET_DIMENSIONALITY
+from definitions import TARGET_DIMENSIONALITY
 
 
 def setup_multiprocessing():
@@ -19,3 +19,5 @@ def get_instance_name(instance):
         + str(TARGET_DIMENSIONALITY)
     )
     return name
+
+

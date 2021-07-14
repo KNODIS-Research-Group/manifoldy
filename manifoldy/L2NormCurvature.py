@@ -17,7 +17,7 @@ from scipy.interpolate import griddata
 from scipy.spatial.distance import cdist
 from scipy.special import comb
 
-from manifoldy.definitions import GRID
+from definitions import GRID
 
 
 def compute_first_christoffel_symbols(dg, n):
@@ -147,10 +147,13 @@ def dataset_to_grid(X, n_samples, dim):
     return X.reshape(shap)
 
 
+# +
+N_SAMPLES_GRID = 41
+
 def grid_data(X, Y, n_samples=None):
     dim = X.shape[1]
     if n_samples is None:
-        n_samples = [41] * dim
+        n_samples = [N_SAMPLES_GRID] * dim
 
     offset = 0.05
     xs = np.array(
@@ -174,6 +177,8 @@ def grid_data(X, Y, n_samples=None):
         n_samples,
     )
 
+
+# -
 
 def estimate_inner_product(X, b):
     u, s, vh = np.linalg.svd(X, full_matrices=True)
@@ -453,14 +458,27 @@ def estimate_sectional_curvature(
     return np.stack(R)
 
 
-def compute_grid_norm(X, R_sq, grid_n_samples, offset, verbose=False):
+def compute_grid_norm(X, R_sq, grid_n_samples, offset=2, verbose=False):
+    """
+    If offset < 1, the integration is carried out on the square [offset, 1-offset]^d.
+    If offset >= 1, the integration is carried out by pulling appart offset points at
+    each side of the cube (preferred option)
+    """
+        
     dim = X.shape[1]
 
-    reduction_indices = [
-        range(int(grid_n_samples[i] * offset), int(grid_n_samples[i] * (1 - offset)))
-        for i in range(len(grid_n_samples))
-    ]
+    if offset < 0.1:
+        reduction_indices = [
+            range(int(grid_n_samples[i] * offset), int(grid_n_samples[i] * (1 - offset)))
+            for i in range(len(grid_n_samples))
+        ]
 
+    else:
+        reduction_indices = [
+        range(offset, grid_n_samples[i]-offset)
+            for i in range(len(grid_n_samples))
+        ]
+        
     X_grid = dataset_to_grid(X, grid_n_samples, dim)
     X_red_indices = reduction_indices + [range(dim)]
     X_crop_grid = crop_matrix(X_grid, X_red_indices)
@@ -511,8 +529,9 @@ def L2_norm_sectional_curvature(
     n_neighbors=20,
     integration="grid",
     grid_n_samples=None,
-    offset=0.25,
+    offset=2,
     verbose=False,
+    full_output=False
 ):
     """
     Available metric_estimation:
@@ -545,15 +564,61 @@ def L2_norm_sectional_curvature(
         estimate_sectional_curvature(
             X, Y, n_neighbors, grid_n_samples, metric_estimation
         )
-        ** 2
     )
     if verbose:
         print("Estimation of sectional curvature: DONE")
 
+    R_sq_log = np.log(1+np.abs(R_sq))
     if integration == "adaptive":
-        return compute_adaptive_norm(X, R_sq, offset, verbose)
-    return compute_grid_norm(X, R_sq, grid_n_samples, offset, verbose)
+        if full_output:
+            return X, Y, R_sq_log, compute_adaptive_norm(X, R_sq_log, offset, verbose)
+        else:
+            return compute_adaptive_norm(X, R_sq_log, offset, verbose)
 
+    if full_output:
+        return X, Y, R_sq_log, compute_grid_norm(X, R_sq_log, grid_n_samples, offset, verbose)
+    else:
+        return compute_grid_norm(X, R_sq_log, grid_n_samples, offset, verbose)
+
+
+# +
+import matplotlib.pyplot as plt
+
+def plot_results(dataframe):
+    for i in range(dataframe.shape[0]):
+        instance = dataframe.iloc[i]["Instance"]
+        model = dataframe.iloc[i]["Model"]
+        X = dataframe.iloc[i]["X"]
+        Y = dataframe.iloc[i]["Y"]
+        R_sq = dataframe.iloc[i]["R_sq_log"]
+
+        print(instance + ' - ' + model + ': '+ str(dataframe.iloc[i]["Score"]))
+        plt.scatter(X[:,0], X[:,1], c=np.arctan(X[:,0]), cmap='rainbow', s=25, alpha=0.8)
+        plt.savefig('results/images/' + instance + '_' + model + '_grid.png')
+        plt.show()
+
+        plt.scatter(Y[:,0], Y[:,1], c=np.arctan(X[:,0]), cmap='rainbow', s=25, alpha=0.8)
+        plt.savefig('results/images/' + instance + '_' + model + '_image.png')
+        plt.show()
+
+        plt.scatter(X[:,0], X[:,1], c=R_sq, cmap='gray', s=25)
+        plt.savefig('results/images/' + instance + '_' + model + '_curvature_grid_gray.png')
+        plt.show()
+        
+        plt.scatter(Y[:,0], Y[:,1], c=R_sq, cmap='gray', s=25)
+        plt.savefig('results/images/' + instance + '_' + model + '_curvature_image_gray.png')
+        plt.show()
+        
+        plt.scatter(X[:,0], X[:,1], c=R_sq, cmap='OrRd', s=25)
+        plt.savefig('results/images/' + instance + '_' + model + '_curvature_grid.png')
+        plt.show()
+
+        plt.scatter(Y[:,0], Y[:,1], c=R_sq, cmap='OrRd', s=25)
+        plt.savefig('results/images/' + instance + '_' + model + '_curvature_image.png')
+        plt.show()
+
+
+# -
 
 if __name__ == "__main__":
 
@@ -567,6 +632,7 @@ if __name__ == "__main__":
             y_pred,
             metric_estimation="interpolate_metric",
             verbose=False,
+            full_output=True
         )
 
     with open("results/projection_dataset_names.pickle", "rb") as file:
@@ -583,24 +649,20 @@ if __name__ == "__main__":
         )
 
         results = [
-            (*name.split(" "), curvature)
+            (*name.split(" "), curvature[0], curvature[1], curvature[2], curvature[3])
             for name, curvature in zip(projection_names, curvatures)
         ]
-
+        
         dataframe = pd.DataFrame(
-            results, columns=["Instance", "Model", "Score"], index=None
+            [results[i] for i in range(len(results))],
+            columns=["Instance", "Model", "X", "Y", "R_sq_log", "Score"], index=None
         )
 
         end_time = datetime.datetime.now()
         print(f"End time: {end_time}")
         print(f"Time elapsed: {end_time - start_time}")
 
-        try:
-            previous_df = pd.read_csv("results.csv", index_col=0)
-            if not previous_df.equals(dataframe):
-                print("Different files")
-                dataframe.to_csv("results2.csv")
-            else:
-                print("Files are identical")
-        except FileNotFoundError:
-            dataframe.to_csv("results.csv")
+        dataframe.to_csv("results/results.csv")
+        plot_results(dataframe)
+
+

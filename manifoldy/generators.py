@@ -10,7 +10,7 @@ from scipy.interpolate import CubicSpline
 from scipy.stats import multivariate_normal
 from scipy.stats import special_ortho_group
 
-from manifoldy.definitions import (
+from definitions import (
     RANDOM_NOISE_STD,
     GRID,
     TARGET_DIMENSIONALITY,
@@ -19,7 +19,7 @@ from manifoldy.definitions import (
     DIFFICULTY,
     RANDOM_SEED,
 )
-from manifoldy.utils import get_instance_name, setup_multiprocessing
+from utils import get_instance_name, setup_multiprocessing
 
 
 def create_curve(
@@ -164,3 +164,5 @@ if __name__ == "__main__":
         with open("results/dataset_names.pickle", "wb") as file:
             pickle.dump(names, file)
         np.save("results/dataset.npy", data)
+
+
