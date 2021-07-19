@@ -18,7 +18,7 @@ from scipy.interpolate import griddata
 from scipy.spatial.distance import cdist
 from scipy.special import comb
 
-from definitions import GRID
+from manifoldy.definitions import GRID, N_SAMPLES_GRID
 
 
 def compute_first_christoffel_symbols(dg, n):
@@ -149,7 +149,6 @@ def dataset_to_grid(X, n_samples, dim):
 
 
 # +
-N_SAMPLES_GRID = 41
 
 
 def grid_data(X, Y, n_samples=None):

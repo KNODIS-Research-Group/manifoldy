@@ -10,8 +10,8 @@ import numpy as np
 
 from joblib import Parallel, delayed, parallel_backend
 
-from definitions import DIMENSIONALITY_REDUCTION_MODELS
-from utils import setup_multiprocessing
+from manifoldy.definitions import DIMENSIONALITY_REDUCTION_MODELS
+from manifoldy.utils import setup_multiprocessing
 
 
 def apply_reduction(instance, model):

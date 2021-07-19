@@ -3,7 +3,7 @@ import os
 
 import psutil
 
-from definitions import TARGET_DIMENSIONALITY
+from manifoldy.definitions import TARGET_DIMENSIONALITY
 
 
 def setup_multiprocessing():

@@ -10,7 +10,7 @@ from scipy.interpolate import CubicSpline
 from scipy.stats import multivariate_normal
 from scipy.stats import special_ortho_group
 
-from definitions import (
+from manifoldy.definitions import (
     RANDOM_NOISE_STD,
     GRID,
     TARGET_DIMENSIONALITY,
@@ -19,7 +19,7 @@ from definitions import (
     DIFFICULTY,
     RANDOM_SEED,
 )
-from utils import get_instance_name, setup_multiprocessing
+from manifoldy.utils import get_instance_name, setup_multiprocessing
 
 
 def create_curve(
