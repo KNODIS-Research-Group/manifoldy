@@ -19,5 +19,3 @@ def get_instance_name(instance):
         + str(TARGET_DIMENSIONALITY)
     )
     return name
-
-

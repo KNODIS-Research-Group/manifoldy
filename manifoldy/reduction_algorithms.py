@@ -5,8 +5,9 @@ import multiprocessing
 import os
 import pickle
 from itertools import product
-
+import matplotlib.pyplot as plt
 import numpy as np
+
 from joblib import Parallel, delayed, parallel_backend
 
 from definitions import DIMENSIONALITY_REDUCTION_MODELS
@@ -46,16 +47,11 @@ if __name__ == "__main__":
             pickle.dump(projection_names, file)
         np.save("results/projection_results.npy", projection_data)
 
-import matplotlib.pyplot as plt
 
 i = 0
-plt.scatter(projection_data[i][:,0], projection_data[i][:,1])
+plt.scatter(projection_data[i][:, 0], projection_data[i][:, 1])
 
 for i in range(10):
     print(projection_names[i])
-    plt.scatter(projection_data[i][:,0], projection_data[i][:,1])
+    plt.scatter(projection_data[i][:, 0], projection_data[i][:, 1])
     plt.show()
-
-projection_names
-
-

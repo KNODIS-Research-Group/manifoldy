@@ -164,5 +164,3 @@ if __name__ == "__main__":
         with open("results/dataset_names.pickle", "wb") as file:
             pickle.dump(names, file)
         np.save("results/dataset.npy", data)
-
-

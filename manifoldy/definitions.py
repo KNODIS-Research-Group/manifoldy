@@ -34,5 +34,3 @@ DIMENSIONALITY_REDUCTION_MODELS = (
     TSNE(n_components=2, random_state=RANDOM_SEED),
     UMAP(n_components=2, random_state=RANDOM_SEED, metric="cosine"),
 )
-
-
