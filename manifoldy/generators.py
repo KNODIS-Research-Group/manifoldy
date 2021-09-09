@@ -17,7 +17,6 @@ from manifoldy.definitions import (
     USED_CURVATURES,
     CURVATURES,
     DIFFICULTY,
-    RANDOM_SEED,
 )
 from manifoldy.utils import get_instance_name, setup_multiprocessing
 
@@ -120,10 +119,8 @@ def create_dataset(curvature_types, args, n, std):
     covariance = np.eye(n) * std ** 2
 
     def phi(x):
-        random_rotation_matrix = special_ortho_group.rvs(n, random_state=RANDOM_SEED)
-        random_translation = multivariate_normal.rvs(
-            mean=np.zeros(n), cov=covariance, random_state=RANDOM_SEED
-        )
+        random_rotation_matrix = special_ortho_group.rvs(n)
+        random_translation = multivariate_normal.rvs(mean=np.zeros(n), cov=covariance)
         return np.dot(
             random_rotation_matrix, curvature_function(x) + random_translation.T
         ).T
