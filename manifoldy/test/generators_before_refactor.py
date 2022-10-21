@@ -144,5 +144,5 @@ def create_dataset_anisotropic(curvature_types, args, n, cov):
 
 def create_dataset(curvature_types, args, n, std):
     return create_dataset_anisotropic(
-        curvature_types, args, n, np.identity(n) * std ** 2
+        curvature_types, args, n, np.identity(n) * std**2
     )

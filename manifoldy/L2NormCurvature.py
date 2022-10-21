@@ -58,7 +58,10 @@ def compute_christoffel_symbols(g, dg):
     n = g.shape[0]
     CS_first = compute_first_christoffel_symbols(dg, n)
 
-    g_inv = np.linalg.inv(g)
+    try:
+        g_inv = np.linalg.inv(g)
+    except np.linalg.LinAlgError:
+        g_inv = np.linalg.pinv(g)
     return np.tensordot(g_inv, CS_first, axes=([1], [0]))
 
 
@@ -69,7 +72,11 @@ def compute_derivative_christoffel_symbols(g, dg, ddg):
     # Gamma_{0;2,3}^1
     n = g.shape[0]
     CS_first = compute_first_christoffel_symbols(dg, n)
-    g_inv = np.linalg.inv(g)
+
+    try:
+        g_inv = np.linalg.inv(g)
+    except np.linalg.LinAlgError:
+        g_inv = np.linalg.pinv(g)
 
     derivatives = []
     for l in range(n):
@@ -362,7 +369,7 @@ def interpolate_metric_derivatives(g_sp, X, n_samples, order=2):
 
     grid = dataset_to_grid(X, n_samples, X.shape[1])
 
-    g = np.array([g_sp[i](grid) for i in range(d ** 2)])
+    g = np.array([g_sp[i](grid) for i in range(d**2)])
     g = g.T.reshape((n, d, d))
 
     partial_derivative_indices = get_partial_derivative_indices(d, order=order)
@@ -372,7 +379,7 @@ def interpolate_metric_derivatives(g_sp, X, n_samples, order=2):
         derivatives_list = []
         for indices in partial_derivative_indices[derivative_order]:
             derivatives_list.append(
-                np.stack([g_sp[i](grid, nus=indices) for i in range(d ** 2)])
+                np.stack([g_sp[i](grid, nus=indices) for i in range(d**2)])
             )
 
         derivatives_list = np.array(derivatives_list).reshape(
@@ -637,8 +644,7 @@ if __name__ == "__main__":
 
     def eval_pair(y_true, y_pred):
         os.system(
-            "taskset -cp 0-%d %s > /dev/null 2>&1"
-            % (multiprocessing.cpu_count(), os.getpid())
+            f"taskset -cp 0-{multiprocessing.cpu_count()} {os.getpid()} > /dev/null 2>&1"
         )
         return L2_norm_sectional_curvature(
             y_true,

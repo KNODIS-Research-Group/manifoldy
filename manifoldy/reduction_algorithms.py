@@ -17,8 +17,7 @@ from manifoldy.utils import setup_multiprocessing
 def apply_reduction(instance, model):
     name, instance_data = instance
     os.system(
-        "taskset -cp 0-%d %s > /dev/null 2>&1"
-        % (multiprocessing.cpu_count(), os.getpid())
+        f"taskset -cp 0-{multiprocessing.cpu_count()} {os.getpid()} > /dev/null 2>&1"
     )
     return name, type(model).__name__, model.fit_transform(instance_data)
 

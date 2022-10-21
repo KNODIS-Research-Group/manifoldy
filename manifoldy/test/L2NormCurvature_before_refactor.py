@@ -530,7 +530,7 @@ def L2_norm_sectional_curvature(
     if verbose:
         print("Starting: estimation of sectional curvature")
     R = estimate_sectional_curvature(X, Y, K, grid_n_samples, metric_estimation)
-    R_sq = R ** 2
+    R_sq = R**2
     if verbose:
         print("Estimation of sectional curvature: DONE")
 

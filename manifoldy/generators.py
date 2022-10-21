@@ -116,7 +116,7 @@ def create_dataset(curvature_types, args, n, std):
         )
 
     curvature_function = get_curvature_function(curvature_types, args, n)
-    covariance = np.eye(n) * std ** 2
+    covariance = np.eye(n) * std**2
 
     def phi(x):
         random_rotation_matrix = special_ortho_group.rvs(n)
@@ -130,8 +130,7 @@ def create_dataset(curvature_types, args, n, std):
 
 def gen_pair(instance):
     os.system(
-        "taskset -cp 0-%d %s > /dev/null 2>&1"
-        % (multiprocessing.cpu_count(), os.getpid())
+        f"taskset -cp 0-{multiprocessing.cpu_count()} {os.getpid()} > /dev/null 2>&1"
     )
     name = get_instance_name(instance)
     return name, np.apply_along_axis(

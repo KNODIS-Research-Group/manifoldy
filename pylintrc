@@ -1,5 +1,6 @@
 [MASTER]
 jobs=0
+ignore-patterns=(.)*_test\.py,test_(.)*\.py,(.)*_before_refactor\.py
 
 [MESSAGES CONTROL]
 disable=missing-module-docstring,
@@ -12,4 +13,5 @@ disable=missing-module-docstring,
         cell-var-from-loop,
         duplicate-code,
         import-error,
-        unbalanced-tuple-unpacking
+        unbalanced-tuple-unpacking,
+        consider-using-generator

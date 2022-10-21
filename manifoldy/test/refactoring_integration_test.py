@@ -27,8 +27,7 @@ grid = np.mgrid[0:1:30j, 0:1:30j].reshape(2, -1).T
 
 def gen_pair_refactor(instance):
     os.system(
-        "taskset -cp 0-%d %s > /dev/null 2>&1"
-        % (multiprocessing.cpu_count(), os.getpid())
+        f"taskset -cp 0-{multiprocessing.cpu_count()} {os.getpid()} > /dev/null 2>&1"
     )
     name = get_instance_name(instance)
     return name, np.apply_along_axis(
@@ -63,8 +62,7 @@ def test_gen_pair():
 
 def eval_pair(p, model):
     os.system(
-        "taskset -cp 0-%d %s > /dev/null 2>&1"
-        % (multiprocessing.cpu_count(), os.getpid())
+        f"taskset -cp 0-{multiprocessing.cpu_count()} {os.getpid()} > /dev/null 2>&1"
     )
     return (
         p[0],
@@ -80,8 +78,7 @@ def eval_pair(p, model):
 
 def eval_pair_refactor(p, model):
     os.system(
-        "taskset -cp 0-%d %s > /dev/null 2>&1"
-        % (multiprocessing.cpu_count(), os.getpid())
+        f"taskset -cp 0-{multiprocessing.cpu_count()} {os.getpid()} > /dev/null 2>&1"
     )
     return (
         p[0],
